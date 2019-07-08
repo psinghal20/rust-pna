@@ -2,6 +2,7 @@ extern crate structopt;
 use kvs::KvStore;
 use std::process;
 use structopt::StructOpt;
+use std::process::exit;
 
 #[derive(StructOpt)]
 struct Opt {
@@ -23,18 +24,21 @@ enum Cmd {
 
 fn main() {
     let opt = Opt::from_args();
-    let mut kv_store = KvStore::new();
+    let  kv_store = KvStore::new();
 
     if let Some(cmd) = opt.cmd {
         match cmd {
-            Cmd::Get { key } => {
-                println!("{}", kv_store.get(key.to_string()).unwrap());
+            Cmd::Get { key: _ } => {
+                eprintln!("unimplemented");
+                exit(1);
             }
-            Cmd::Set { key, value } => {
-                kv_store.set(key.to_string(), value.to_string());
+            Cmd::Set { key: _, value: _ } => {
+                eprintln!("unimplemented");
+                exit(1);
             }
-            Cmd::Remove { key } => {
-                kv_store.remove(key.to_string());
+            Cmd::Remove { key: _ } => {
+                eprintln!("unimplemented");
+                exit(1);
             }
         }
     } else if opt.version {
