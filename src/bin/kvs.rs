@@ -1,5 +1,5 @@
 extern crate structopt;
-use kvs::KvStore;
+use kvs::{KvStore, Result, KvsError};
 use std::process;
 use structopt::StructOpt;
 use std::process::exit;
@@ -22,27 +22,28 @@ enum Cmd {
     Remove { key: String },
 }
 
-fn main() {
+fn main() -> Result<()> {
     let opt = Opt::from_args();
-    let  kv_store = KvStore::new();
+    let mut kv_store = KvStore::new();
 
     if let Some(cmd) = opt.cmd {
         match cmd {
-            Cmd::Get { key: _ } => {
-                eprintln!("unimplemented");
-                exit(1);
+            Cmd::Get { key } => {
+                if let Some(value) = kv_store.get(key)? {
+                    println!("value is: {}", value);
+                }
+                Ok(())
             }
-            Cmd::Set { key: _, value: _ } => {
-                eprintln!("unimplemented");
-                exit(1);
+            Cmd::Set { key, value } => {
+                kv_store.set(key, value)
             }
-            Cmd::Remove { key: _ } => {
-                eprintln!("unimplemented");
-                exit(1);
+            Cmd::Remove { key } => {
+                kv_store.remove(key)
             }
         }
     } else if opt.version {
         println!(env!("CARGO_PKG_VERSION"));
+        Err(KvsError::Err)
     } else {
         process::exit(1);
     }
