@@ -1,8 +1,7 @@
 extern crate structopt;
 use kvs::{KvStore, Result, KvsError};
-use std::process;
+use std::{process, env};
 use structopt::StructOpt;
-use std::process::exit;
 
 #[derive(StructOpt)]
 struct Opt {
@@ -24,13 +23,16 @@ enum Cmd {
 
 fn main() -> Result<()> {
     let opt = Opt::from_args();
-    let mut kv_store = KvStore::new();
-
+    let mut kv_store = KvStore::open(env::current_dir()?.as_path())?;
     if let Some(cmd) = opt.cmd {
         match cmd {
             Cmd::Get { key } => {
-                if let Some(value) = kv_store.get(key)? {
-                    println!("value is: {}", value);
+                if let Ok(result_value) = kv_store.get(key) {
+                    if let Some(value) = result_value {
+                        println!("{}", value);
+                    } else {
+                        println!("Key not found");
+                    }
                 }
                 Ok(())
             }
@@ -38,7 +40,11 @@ fn main() -> Result<()> {
                 kv_store.set(key, value)
             }
             Cmd::Remove { key } => {
-                kv_store.remove(key)
+                if let Err(_) = kv_store.remove(key) {
+                    println!("Key not found");
+                    return Err(KvsError::Err);
+                }
+                Ok(())
             }
         }
     } else if opt.version {

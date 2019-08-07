@@ -15,6 +15,7 @@ use ron;
 #[derive(Default)]
 pub struct KvStore {
     mem_map: HashMap<String, u64>,
+    path: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -29,28 +30,31 @@ impl KvStore {
     pub fn new() -> KvStore {
         KvStore {
             mem_map: HashMap::new(),
+            path: String::new(),
         }
     }
     /// Sets a key-value pair into the Key value store
     /// If the store did not have this key present, the key is inserted
     /// If the store did have this key, the value is updated.
     pub fn set(&mut self, key: String, value: String) -> Result<()> {
-        self.intialise_mem_map()?;
+        // self.intialise_mem_map()?;
         let mut file = fs::OpenOptions::new()
                     .append(true)
-                    .open("kvs.ron")?;
+                    .open(&self.path)?;
+        file.seek(io::SeekFrom::End(0))?;
         let offset = file.seek(io::SeekFrom::Current(0))?;
         let key_copy = key.clone();
         let cmd = Command::Set(key, value);
         file.write_all(ron::ser::to_string(&cmd)?.as_bytes())?;
+        file.flush()?;
         self.mem_map.insert(key_copy, offset);
         Ok(())
     }
     /// Returns the value corresponding to the key.
     pub fn get(&mut self, key: String) -> Result<option::Option<String>> {
-        self.intialise_mem_map()?;
+        // self.intialise_mem_map()?;
         if let Some(value) = self.mem_map.get(&key) {
-            let file = fs::File::open("kvs.ron")?;
+            let file = fs::File::open(&self.path)?;
             let mut buffered_file = io::BufReader::new(file);
             buffered_file.seek(io::SeekFrom::Start(value.to_owned()))?;
             let mut buf: Vec<u8> = Vec::new();
@@ -59,44 +63,53 @@ impl KvStore {
             if let Command::Set(_, value) = cmd {
                 Ok(Some(value))
             } else {
-                Err(KvsError::NotFoundError(key))
+                Ok(None)
             }
         } else {
-            Err(KvsError::NotFoundError(key))
+            Ok(None)
         }
     }
     /// Removes a key from the map
     pub fn remove(&mut self, key: String) -> Result<()> {
-        self.intialise_mem_map()?;
+        // self.intialise_mem_map()?;
         if let None = self.mem_map.remove(&key) {
             return Err(KvsError::NotFoundError(key));
         }
         let cmd = Command::Rm(key);
         let mut file = fs::OpenOptions::new()
                         .append(true)
-                        .open("kvs.ron")?;
+                        .open(&self.path)?;
         file.write_all(ron::ser::to_string(&cmd)?.as_bytes())?;
         Ok(())
     }
 
     /// Open specific file from bitcask
     pub fn open(path: &path::Path) -> Result<KvStore>{
-        panic!("Can't open a file!");
+        let path = path.join("kvs.ron");
+        let path_string; 
+        if let Some(path) = path.to_str() {
+            path_string = path;
+        } else {
+            return Err(KvsError::PathError);
+        }
+        let mut kv_store = KvStore {
+            mem_map: HashMap::new(),
+            path: path_string.to_string(),
+        };
+        kv_store.intialise_mem_map()?;
+        Ok(kv_store)
     }
 
     fn intialise_mem_map(&mut self) -> Result<()> {
-        let file = fs::File::open("kvs.ron")?;
+        let file = fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .read(true)
+                    .open(&self.path)?;
         let mut buffered_file = io::BufReader::new(file);
         let mut buf: Vec<u8> = Vec::new();
         let mut offset = 0;
-        let mut count = 0;
         while let Ok(size) = buffered_file.read_until(b')', &mut buf) {
-            // println!("Counter: {}", count);
-            // let clone_buf = buf.clone();
-            // if let Ok(test_string) = String::from_utf8(clone_buf) {
-            //     println!("String: {}", test_string );
-            // }
-            // count = count+ 1;
             if size == 0 {
                 return Ok(());
             }
@@ -128,6 +141,8 @@ pub enum KvsError {
     DeError(ron::de::Error),
     #[fail(display = "{} not found!", _0)]
     NotFoundError(String),
+    #[fail(display = "Path Error")]
+    PathError,
     #[fail(display = "KVS misc error")]
     Err,
 }
