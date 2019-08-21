@@ -23,7 +23,7 @@ enum Cmd {
 
 fn main() -> Result<()> {
     let opt = Opt::from_args();
-    let mut kv_store = KvStore::open(&env::current_dir()?.as_path().join("temp"))?;
+    let mut kv_store = KvStore::open(&env::current_dir()?.as_path())?;
     if let Some(cmd) = opt.cmd {
         match cmd {
             Cmd::Get { key } => {

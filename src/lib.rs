@@ -12,6 +12,7 @@ use serde::{Serialize, Deserialize};
 use std::io::prelude::*;
 use ron;
 use walkdir::WalkDir;
+use walkdir::DirEntry;
 use uuid;
 
 /// KvStore serves as the storage data structure for
@@ -121,7 +122,8 @@ impl KvStore {
 
     fn intialise_mem_map(&mut self) -> Result<()> {
         let mut buf: Vec<u8> = Vec::new();
-        for entry in WalkDir::new(&self.path) {
+        let walker = WalkDir::new(&self.path).min_depth(1).into_iter();
+        for entry in walker.filter_entry(|e| is_hidden(e)) {
             let mut offset = 0;
             self.file_list.push(entry?.path().to_path_buf());
             let file_index = self.file_list.len() - 1;
@@ -155,4 +157,11 @@ impl KvStore {
         }
         Ok(())
     }
+}
+
+fn is_hidden(entry: &DirEntry) -> bool {
+    entry.file_name()
+         .to_str()
+         .map(|s| s.ends_with(".ron"))
+         .unwrap_or(false)
 }
