@@ -7,6 +7,7 @@ mod errors;
 
 pub use errors::{KvsError, Result};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::{path, option, fs, io};
 use serde::{Serialize, Deserialize};
 use std::io::prelude::*;
@@ -19,10 +20,10 @@ use uuid;
 /// our database.
 #[derive(Default)]
 pub struct KvStore {
-    mem_map: HashMap<String, (usize, u64)>,
+    mem_map: HashMap<String, (String, u64)>,
     path: path::PathBuf,
-    active_file: option::Option<usize>,
-    file_list: Vec<path::PathBuf>,
+    active_file: option::Option<String>,
+    // file_list: Vec<path::PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -41,7 +42,7 @@ impl KvStore {
             mem_map: HashMap::new(),
             path: path::PathBuf::new(),
             active_file: None,
-            file_list: Vec::new(),
+            // file_list: Vec::new(),
         }
     }
     /// Sets a key-value pair into the Key value store
@@ -51,14 +52,13 @@ impl KvStore {
         if let None = self.active_file {
             let path = self.path.clone();
             let path = path.join(uuid::Uuid::new_v4().to_string() + ".ron");
-            self.file_list.push(path);
-            self.active_file = Some(self.file_list.len() - 1);
+            self.active_file = Some(path.file_name().unwrap().to_str().unwrap().into());
         }
-        let active_file = self.active_file.ok_or(KvsError::PathError)?;
+        let active_file = self.active_file.clone().ok_or(KvsError::PathError)?;
         let mut file = fs::OpenOptions::new()
                     .create(true)
                     .append(true)
-                    .open(self.file_list.get(active_file).ok_or(KvsError::PathError)?)?;
+                    .open(&active_file)?;
         file.seek(io::SeekFrom::End(0))?;
         let offset = file.seek(io::SeekFrom::Current(0))?;
         let key_copy = key.clone();
@@ -70,12 +70,16 @@ impl KvStore {
         if file_metadata.len() > MAX_FILESIZE {
             self.active_file = None;
         }
+        if self.check_for_compaction() {
+            self.compaction()?;
+        }
         Ok(())
     }
     /// Returns the value corresponding to the key.
     pub fn get(&mut self, key: String) -> Result<option::Option<String>> {
-        if let Some((file_index, offset)) = self.mem_map.get(&key) {
-            let file = fs::File::open(self.file_list.get(file_index.to_owned()).ok_or(KvsError::PathError)?)?;
+        println!("{:?}", self.mem_map);
+        if let Some((file_name, offset)) = self.mem_map.get(&key) {
+            let file = fs::File::open(file_name)?;
             let mut buffered_file = io::BufReader::new(file);
             buffered_file.seek(io::SeekFrom::Start(offset.to_owned()))?;
             let mut buf: Vec<u8> = Vec::new();
@@ -96,14 +100,17 @@ impl KvStore {
             return Err(KvsError::NotFoundError(key));
         }
         let cmd = Command::Rm(key);
-        let active_file = self.active_file.ok_or(KvsError::PathError)?;
+        let active_file = self.active_file.clone().ok_or(KvsError::PathError)?;
         let mut file = fs::OpenOptions::new()
                         .append(true)
-                        .open(self.file_list.get(active_file).ok_or(KvsError::PathError)?)?;
+                        .open(&active_file)?;
         file.write_all(ron::ser::to_string(&cmd)?.as_bytes())?;
         let file_metadata = file.metadata()?;
         if file_metadata.len() > MAX_FILESIZE {
             self.active_file = None;
+        }
+        if self.check_for_compaction() {
+            self.compaction()?;
         }
         Ok(())
     }
@@ -114,7 +121,7 @@ impl KvStore {
             mem_map: HashMap::new(),
             path: path.to_path_buf(),
             active_file: None,
-            file_list: Vec::new(),
+            // file_list: Vec::new(),
         };
         kv_store.intialise_mem_map()?;
         Ok(kv_store)
@@ -125,15 +132,17 @@ impl KvStore {
         let walker = WalkDir::new(&self.path).min_depth(1).into_iter();
         for entry in walker.filter_entry(|e| is_hidden(e)) {
             let mut offset = 0;
-            self.file_list.push(entry?.path().to_path_buf());
-            let file_index = self.file_list.len() - 1;
+            // self.file_list.push(entry?.path().to_path_buf());
+            // let file_index = self.file_list.len() - 1;
+            let path = entry?.path().to_path_buf();
+            let file_name = path.file_name().unwrap().to_str().unwrap();
             let file = fs::OpenOptions::new()
                     .read(true)
-                    .open(self.file_list.get(file_index).ok_or(KvsError::PathError)?)?;
-            let len = fs::metadata(self.file_list.get(file_index).ok_or(KvsError::PathError)?)?.len();
+                    .open(&path)?;
+            let len = fs::metadata(&path)?.len();
             if len < MAX_FILESIZE {
                 if let None = self.active_file {
-                    self.active_file = Some(file_index);
+                    self.active_file = Some(file_name.into());
                 }
             }
             let mut buffered_file = io::BufReader::new(file);
@@ -144,7 +153,7 @@ impl KvStore {
                 let cmd: Command = ron::de::from_bytes(&buf[..])?;
                 match cmd {
                     Command::Set(key, _) => {
-                        self.mem_map.insert(key, (file_index, offset));
+                        self.mem_map.insert(key, (file_name.into(), offset));
                     }
                     Command::Rm(key) => {
                         self.mem_map.remove(&key);
@@ -155,6 +164,42 @@ impl KvStore {
                 buf.clear();
             }
         }
+        Ok(())
+    }
+
+    fn check_for_compaction(&mut self) -> bool {
+        let walker = WalkDir::new(&self.path).min_depth(1).into_iter();
+        let file_count = walker.filter_entry(|e| is_hidden(e)).count();
+        file_count > 3
+    }
+
+    fn compaction(&mut self) -> Result<()> {
+        println!("Trigerring compaction!");
+        let active_file = self.active_file.clone().unwrap_or("".to_string());
+        let path = self.path.clone();
+        let new_file_name = uuid::Uuid::new_v4().to_string() + ".ron";
+        let path = path.join(&new_file_name);
+        // self.file_list.push(path);
+        let mut files_to_remove = HashSet::new();
+        let mut buf: Vec<u8> = Vec::new();
+        let mut file = fs::File::create(&path)?;
+        for (_, (file_name, offset)) in self.mem_map.iter_mut().filter(|value| value.0.to_string() != active_file) {
+            files_to_remove.insert(file_name.to_owned());
+            let file_read = fs::File::open(&file_name)?;
+            let mut buffered_file = io::BufReader::new(file_read);
+            buffered_file.seek(io::SeekFrom::Start(offset.to_owned()))?;
+            buffered_file.read_until(b')', &mut buf)?;
+            *file_name = new_file_name.clone();
+            *offset = file.seek(io::SeekFrom::Current(0))?;
+            file.write_all(&buf[..])?;
+            file.flush()?;
+            buf.clear();
+        }
+
+        for file_name in files_to_remove {
+            fs::remove_file(file_name)?;
+        }
+
         Ok(())
     }
 }

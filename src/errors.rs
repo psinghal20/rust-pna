@@ -18,6 +18,8 @@ pub enum KvsError {
     PathError,
     #[fail(display = "Error while walking directory")]
     WalkDirError(walkdir::Error),
+    #[fail(display = "Error while compacting database log")]
+    CompactionError(),
     #[fail(display = "KVS misc error")]
     Err,
 }
