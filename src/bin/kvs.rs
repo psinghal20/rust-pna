@@ -40,9 +40,9 @@ fn main() -> Result<()> {
                 kv_store.set(key, value)
             }
             Cmd::Remove { key } => {
-                if let Err(error) = kv_store.remove(key) {
+                if let Err(KvsError::NotFoundError(_)) = kv_store.remove(key) {
                     println!("Key not found");
-                    return Err(error);
+                    process::exit(1);
                 }
                 Ok(())
             }

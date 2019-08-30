@@ -1,25 +1,26 @@
-use ron;
 use std::io;
 use std::result;
-use walkdir;
+use serde_json;
 
 /// KVS Error type
 #[derive(Debug, Fail)]
 pub enum KvsError {
     #[fail(display = "KVS command io-error")]
     IOError(io::Error),
-    #[fail(display = "KVS command serialization error")]
-    SerError(ron::ser::Error),
-    #[fail(display = "KVS command deserialization error")]
-    DeError(ron::de::Error),
+    #[fail(display = "KVS command serialization/Deserialization error")]
+    SerDeError(serde_json::error::Error),
+    // #[fail(display = "KVS command deserialization error")]
+    // DeError(ron::de::Error),
     #[fail(display = "{} not found!", _0)]
     NotFoundError(String),
     #[fail(display = "Path Error")]
     PathError,
-    #[fail(display = "Error while walking directory")]
-    WalkDirError(walkdir::Error),
+    // #[fail(display = "Error while walking directory")]
+    // WalkDirError(walkdir::Error),
     #[fail(display = "Error while compacting database log")]
     CompactionError(),
+    #[fail(display = "Unexpected Command type found")]
+    UnexpectedCommandError,
     #[fail(display = "KVS misc error")]
     Err,
 }
@@ -30,23 +31,17 @@ impl From<io::Error> for KvsError {
     }
 }
 
-impl From<ron::ser::Error> for KvsError {
-    fn from(error: ron::ser::Error) -> Self {
-        KvsError::SerError(error)
+impl From<serde_json::error::Error> for KvsError {
+    fn from(error: serde_json::error::Error) -> Self {
+        KvsError::SerDeError(error)
     }
 }
 
-impl From<ron::de::Error> for KvsError {
-    fn from(error: ron::de::Error) -> Self {
-        KvsError::DeError(error)
-    }
-}
-
-impl From<walkdir::Error> for KvsError {
-    fn from(error: walkdir::Error) -> Self {
-        KvsError::WalkDirError(error)
-    }
-}
+// impl From<ron::de::Error> for KvsError {
+//     fn from(error: ron::de::Error) -> Self {
+//         KvsError::DeError(error)
+//     }
+// }
 
 /// KVS Result type
 pub type Result<T> = result::Result<T, KvsError>;
