@@ -1,6 +1,6 @@
+use serde_json;
 use std::io;
 use std::result;
-use serde_json;
 
 /// KVS Error type
 #[derive(Debug, Fail)]
@@ -36,12 +36,6 @@ impl From<serde_json::error::Error> for KvsError {
         KvsError::SerDeError(error)
     }
 }
-
-// impl From<ron::de::Error> for KvsError {
-//     fn from(error: ron::de::Error) -> Self {
-//         KvsError::DeError(error)
-//     }
-// }
 
 /// KVS Result type
 pub type Result<T> = result::Result<T, KvsError>;

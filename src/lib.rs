@@ -2,15 +2,20 @@
 //! A basic key value store library
 
 extern crate failure;
-#[macro_use] extern crate failure_derive;
+#[macro_use]
+extern crate failure_derive;
 mod errors;
 
+#[macro_use]
+extern crate slog;
 pub use errors::{KvsError, Result};
-use std::collections::{HashMap, BTreeMap};
-use std::{path, option, fs, io, ffi::OsStr};
-use serde::{Serialize, Deserialize};
-use std::io::prelude::*;
+use serde::{Deserialize, Serialize};
 use serde_json;
+use slog::Logger;
+use std::collections::{BTreeMap, HashMap};
+use std::io::prelude::*;
+use std::net::{Shutdown, TcpListener, TcpStream};
+use std::{env, ffi::OsStr, fs, io, option, path};
 
 /// KvStore serves as the storage data structure for
 /// our database.
@@ -28,6 +33,7 @@ pub struct KvStore {
 pub enum Command {
     Set(String, String),
     Rm(String),
+    Get(String),
 }
 
 struct CommandPos {
@@ -59,7 +65,10 @@ impl KvStore {
         self.writer.flush()?;
         let new_pos = self.writer.seek(io::SeekFrom::Current(0))?;
         if let Command::Set(key, ..) = cmd {
-            if let Some(old_cmd) = self.mem_map.insert(key, (self.current_file_no, pos, new_pos).into()) {
+            if let Some(old_cmd) = self
+                .mem_map
+                .insert(key, (self.current_file_no, pos, new_pos).into())
+            {
                 self.uncompacted_bytes += old_cmd.len;
             }
         }
@@ -71,7 +80,10 @@ impl KvStore {
     /// Returns the value corresponding to the key.
     pub fn get(&mut self, key: String) -> Result<option::Option<String>> {
         if let Some(cmd_pos) = self.mem_map.get(&key) {
-            let reader = self.readers.get_mut(&cmd_pos.file_no).expect("Couldn't find the log reader!");
+            let reader = self
+                .readers
+                .get_mut(&cmd_pos.file_no)
+                .expect("Couldn't find the log reader!");
             reader.seek(io::SeekFrom::Start(cmd_pos.start))?;
             let cmd_reader = reader.take(cmd_pos.len);
             if let Command::Set(_, value) = serde_json::from_reader(cmd_reader)? {
@@ -85,22 +97,22 @@ impl KvStore {
     }
     /// Removes a key from the map
     pub fn remove(&mut self, key: String) -> Result<()> {
-       if self.mem_map.contains_key(&key) {
-           let cmd = Command::Rm(key);
-           serde_json::to_writer(&mut self.writer, &cmd)?;
-           self.writer.flush()?;
-           if let Command::Rm(key) = cmd {
-               let old_cmd = self.mem_map.remove(&key).expect("Key not found!");
-               self.uncompacted_bytes += old_cmd.len;
-           }
-           Ok(())
-       } else {
-           Err(KvsError::NotFoundError(key))
-       }
+        if self.mem_map.contains_key(&key) {
+            let cmd = Command::Rm(key);
+            serde_json::to_writer(&mut self.writer, &cmd)?;
+            self.writer.flush()?;
+            if let Command::Rm(key) = cmd {
+                let old_cmd = self.mem_map.remove(&key).expect("Key not found!");
+                self.uncompacted_bytes += old_cmd.len;
+            }
+            Ok(())
+        } else {
+            Err(KvsError::NotFoundError(key))
+        }
     }
 
     /// Open specific file from bitcask
-    pub fn open(path: &path::Path) -> Result<KvStore>{
+    pub fn open(path: &path::Path) -> Result<KvStore> {
         let path = path.to_path_buf();
         fs::create_dir_all(&path)?;
         let mut readers = HashMap::new();
@@ -136,7 +148,10 @@ impl KvStore {
 
         let mut pos = 0;
         for cmd_pos in self.mem_map.values_mut() {
-            let reader = self.readers.get_mut(&cmd_pos.file_no).expect("Couldn't find log reader");
+            let reader = self
+                .readers
+                .get_mut(&cmd_pos.file_no)
+                .expect("Couldn't find log reader");
             reader.seek(io::SeekFrom::Start(cmd_pos.start))?;
 
             let mut cmd_reader = reader.take(cmd_pos.len);
@@ -146,7 +161,12 @@ impl KvStore {
         }
         compaction_writer.flush()?;
 
-        let stale_files: Vec<_> = self.readers.keys().filter(|&&file_no| { file_no < compaction_no }).cloned().collect();
+        let stale_files: Vec<_> = self
+            .readers
+            .keys()
+            .filter(|&&file_no| file_no < compaction_no)
+            .cloned()
+            .collect();
         for stale_file in stale_files {
             self.readers.remove(&stale_file);
             fs::remove_file(log_path(&self.path, stale_file))?;
@@ -156,7 +176,11 @@ impl KvStore {
     }
 }
 
-fn intialise_mem_map(file_no: u64, reader: &mut io::BufReader<fs::File>, mem_map: &mut BTreeMap<String, CommandPos>) -> Result<u64> {
+fn intialise_mem_map(
+    file_no: u64,
+    reader: &mut io::BufReader<fs::File>,
+    mem_map: &mut BTreeMap<String, CommandPos>,
+) -> Result<u64> {
     let mut pos = reader.seek(io::SeekFrom::Start(0))?;
     let mut stream = serde_json::Deserializer::from_reader(reader).into_iter::<Command>();
     let mut uncompacted_bytes = 0;
@@ -175,6 +199,7 @@ fn intialise_mem_map(file_no: u64, reader: &mut io::BufReader<fs::File>, mem_map
 
                 uncompacted_bytes += new_pos - pos;
             }
+            _ => {}
         }
         pos = new_pos;
     }
@@ -183,16 +208,16 @@ fn intialise_mem_map(file_no: u64, reader: &mut io::BufReader<fs::File>, mem_map
 
 fn get_sorted_file_list(path: &path::Path) -> Result<Vec<u64>> {
     let mut file_list: Vec<u64> = fs::read_dir(path)?
-                        .flat_map(|res| -> Result<_> { Ok(res?.path()) })
-                        .filter(|path| path.is_file() && path.extension() == Some("db".as_ref()))
-                        .flat_map(|path| {
-                            path.file_name()
-                                .and_then(OsStr::to_str)
-                                .map(|s| s.trim_end_matches(".db"))
-                                .map(str::parse::<u64>)
-                        })
-                        .flatten()
-                        .collect();
+        .flat_map(|res| -> Result<_> { Ok(res?.path()) })
+        .filter(|path| path.is_file() && path.extension() == Some("db".as_ref()))
+        .flat_map(|path| {
+            path.file_name()
+                .and_then(OsStr::to_str)
+                .map(|s| s.trim_end_matches(".db"))
+                .map(str::parse::<u64>)
+        })
+        .flatten()
+        .collect();
     file_list.sort();
     Ok(file_list)
 }
@@ -201,14 +226,125 @@ fn log_path(path: &path::Path, file_no: u64) -> path::PathBuf {
     path.join(format!("{}.db", file_no))
 }
 
-fn new_db_file(path: &path::Path, file_no: u64, readers: &mut HashMap<u64, io::BufReader<fs::File>>) -> Result<io::BufWriter<fs::File>> {
+fn new_db_file(
+    path: &path::Path,
+    file_no: u64,
+    readers: &mut HashMap<u64, io::BufReader<fs::File>>,
+) -> Result<io::BufWriter<fs::File>> {
     let path = log_path(path, file_no);
-    let writer = io::BufWriter::new(fs::OpenOptions::new()
-                 .create(true)
-                 .write(true)
-                 .append(true)
-                 .open(&path)?
+    let writer = io::BufWriter::new(
+        fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open(&path)?,
     );
     readers.insert(file_no, io::BufReader::new(fs::File::open(&path)?));
     Ok(writer)
+}
+
+pub struct KvsClient {
+    server_addr: String,
+    stream: TcpStream,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Response {
+    success: bool,
+    value: Option<String>,
+}
+
+impl Response {
+    fn new() -> Self {
+        Response {
+            success: false,
+            value: None,
+        }
+    }
+}
+
+impl KvsClient {
+    pub fn connect(addr: &str) -> Result<Self> {
+        let stream = TcpStream::connect(&addr)?;
+        let client = KvsClient {
+            server_addr: addr.to_owned(),
+            stream: stream,
+        };
+        Ok(client)
+    }
+
+    pub fn send_command(&mut self, cmd: Command) -> Result<Response> {
+        serde_json::to_writer(&mut self.stream, &cmd)?;
+        self.stream.flush()?;
+        self.stream.shutdown(Shutdown::Write)?;
+        let res = serde_json::from_reader(&self.stream)?;
+        // if !res.success {
+        //     return Err(KvsError::Err);
+        // }
+        Ok(res)
+    }
+
+    pub fn get(&mut self, key: &str) -> Result<Option<String>> {
+        let res = self.send_command(Command::Get(key.to_owned()))?;
+        Ok(res.value)
+    }
+
+    pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
+        self.send_command(Command::Set(key.to_owned(), value.to_owned()))?;
+        Ok(())
+    }
+
+    pub fn remove(&mut self, key: &str) -> Result<()> {
+        self.send_command(Command::Rm(key.to_owned()))?;
+        Ok(())
+    }
+}
+
+pub struct KvsServer {
+    addr: String,
+    engine: String,
+    log: Logger,
+    store: KvStore,
+}
+
+impl KvsServer {
+    pub fn new(addr: String, engine: String, log: Logger) -> Result<Self> {
+        let store = KvStore::open(&env::current_dir()?.as_path())?;
+        Ok(KvsServer {
+            addr,
+            engine,
+            log,
+            store,
+        })
+    }
+
+    pub fn start(&mut self) -> Result<()> {
+        let listener = TcpListener::bind(&self.addr)?;
+        for stream in listener.incoming() {
+            let stream = stream?;
+            info!(self.log, "New connection"; "client addr" => stream.peer_addr()?);
+            self.handle_connection(stream)?;
+        }
+        Ok(())
+    }
+
+    fn handle_connection(&mut self, mut stream: TcpStream) -> Result<()> {
+        let cmd: Command = serde_json::from_reader(&stream)?;
+        let mut res = Response::new();
+        match cmd {
+            Command::Get(key) => {
+                res.value = self.store.get(key)?;
+            }
+            Command::Set(key, value) => {
+                self.store.set(key, value)?;
+            }
+            Command::Rm(key) => {
+                self.store.remove(key)?;
+            }
+        }
+        res.success = true;
+        serde_json::to_writer(&mut stream, &res)?;
+        stream.flush()?;
+        Ok(())
+    }
 }
