@@ -7,10 +7,10 @@ use structopt::StructOpt;
 struct Opt {
     #[structopt(short = "V", long = "version")]
     version: bool,
+    #[structopt(short, long, global = true, default_value = "127.0.0.1:4000")]
+    addr: String,
     #[structopt(subcommand)]
     cmd: Option<Cmd>,
-    #[structopt(long, default_value = "127.0.0.1:4000")]
-    addr: String,
 }
 
 #[derive(StructOpt)]
@@ -25,6 +25,10 @@ enum Cmd {
 
 fn main() -> Result<()> {
     let opt = Opt::from_args();
+    if opt.version {
+        println!(env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let mut client = KvsClient::connect(&opt.addr)?;
     if let Some(cmd) = opt.cmd {
         match cmd {
@@ -47,9 +51,6 @@ fn main() -> Result<()> {
                 Ok(())
             }
         }
-    } else if opt.version {
-        println!(env!("CARGO_PKG_VERSION"));
-        Err(KvsError::Err)
     } else {
         process::exit(1);
     }

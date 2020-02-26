@@ -12,7 +12,7 @@ use structopt::StructOpt;
 struct Opt {
     #[structopt(short = "V", long = "version")]
     version: bool,
-    #[structopt(long, default_value = "127.0.0.1:4000")]
+    #[structopt(long, global = true, default_value = "127.0.0.1:4000")]
     addr: String,
     #[structopt(long)]
     engine: Option<Engine>,
@@ -29,6 +29,10 @@ fn main() -> Result<()> {
         drain,
         o!("version" => env!("CARGO_PKG_VERSION"), "engine" => "kvs", "addr" => opt.addr.clone()),
     );
+    if opt.version {
+        println!(env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let engine = match opt.engine {
         Some(engine) => engine,
         None => DEFAULT_ENGINE,
@@ -40,10 +44,6 @@ fn main() -> Result<()> {
     info!(log, "Starting server");
     let mut server = KvsServer::new(opt.addr, store, log.clone(), engine)?;
     server.start()?;
-    if opt.version {
-        println!(env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
 
     Ok(())
 }
