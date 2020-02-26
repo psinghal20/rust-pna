@@ -8,6 +8,8 @@ mod errors;
 
 #[macro_use]
 extern crate slog;
+#[macro_use]
+extern crate clap;
 pub use errors::{KvsError, Result};
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -15,7 +17,7 @@ use slog::Logger;
 use std::collections::{BTreeMap, HashMap};
 use std::io::prelude::*;
 use std::net::{Shutdown, TcpListener, TcpStream};
-use std::{env, ffi::OsStr, fs, io, option, path};
+use std::{ffi::OsStr, fs, io, path};
 
 /// KvStore serves as the storage data structure for
 /// our database.
@@ -54,11 +56,20 @@ impl From<(u64, u64, u64)> for CommandPos {
 
 const COMPACTION_THRESHOLD: u64 = 1024;
 
-impl KvStore {
+pub trait KvsEngine {
     /// Sets a key-value pair into the Key value store
     /// If the store did not have this key present, the key is inserted
     /// If the store did have this key, the value is updated.
-    pub fn set(&mut self, key: String, value: String) -> Result<()> {
+    fn set(&mut self, key: String, value: String) -> Result<()>;
+
+    /// Returns the value corresponding to the key.
+    fn get(&mut self, key: String) -> Result<Option<String>>;
+    /// Removes a key from the map
+    fn remove(&mut self, key: String) -> Result<()>;
+}
+
+impl KvsEngine for KvStore {
+    fn set(&mut self, key: String, value: String) -> Result<()> {
         let cmd = Command::Set(key, value);
         let pos = self.writer.seek(io::SeekFrom::Current(0))?;
         serde_json::to_writer(&mut self.writer, &cmd)?;
@@ -77,8 +88,7 @@ impl KvStore {
         }
         Ok(())
     }
-    /// Returns the value corresponding to the key.
-    pub fn get(&mut self, key: String) -> Result<option::Option<String>> {
+    fn get(&mut self, key: String) -> Result<Option<String>> {
         if let Some(cmd_pos) = self.mem_map.get(&key) {
             let reader = self
                 .readers
@@ -95,8 +105,8 @@ impl KvStore {
             Ok(None)
         }
     }
-    /// Removes a key from the map
-    pub fn remove(&mut self, key: String) -> Result<()> {
+
+    fn remove(&mut self, key: String) -> Result<()> {
         if self.mem_map.contains_key(&key) {
             let cmd = Command::Rm(key);
             serde_json::to_writer(&mut self.writer, &cmd)?;
@@ -110,9 +120,11 @@ impl KvStore {
             Err(KvsError::NotFoundError(key))
         }
     }
+}
 
+impl KvStore {
     /// Open specific file from bitcask
-    pub fn open(path: &path::Path) -> Result<KvStore> {
+    pub fn open(path: &path::Path) -> Result<Self> {
         let path = path.to_path_buf();
         fs::create_dir_all(&path)?;
         let mut readers = HashMap::new();
@@ -300,21 +312,29 @@ impl KvsClient {
     }
 }
 
-pub struct KvsServer {
-    addr: String,
-    engine: String,
-    log: Logger,
-    store: KvStore,
+arg_enum! {
+    #[allow(non_camel_case_types)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum Engine {
+        kvs,
+        sled
+    }
 }
 
-impl KvsServer {
-    pub fn new(addr: String, engine: String, log: Logger) -> Result<Self> {
-        let store = KvStore::open(&env::current_dir()?.as_path())?;
+pub struct KvsServer<T: KvsEngine> {
+    addr: String,
+    engine: Engine,
+    log: Logger,
+    store: T,
+}
+
+impl<T: KvsEngine> KvsServer<T> {
+    pub fn new(addr: String, store: T, log: Logger, engine: Engine) -> Result<Self> {
         Ok(KvsServer {
             addr,
-            engine,
-            log,
             store,
+            log,
+            engine,
         })
     }
 

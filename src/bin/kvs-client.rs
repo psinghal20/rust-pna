@@ -26,8 +26,6 @@ enum Cmd {
 fn main() -> Result<()> {
     let opt = Opt::from_args();
     let mut client = KvsClient::connect(&opt.addr)?;
-    // let mut stream = TcpStream::connect(opt.addr)?;
-    // let mut kv_store = KvStore::open(&env::current_dir()?.as_path())?;
     if let Some(cmd) = opt.cmd {
         match cmd {
             Cmd::Get { key } => {

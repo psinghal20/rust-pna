@@ -3,8 +3,9 @@ extern crate structopt;
 extern crate slog;
 extern crate slog_async;
 extern crate slog_term;
-use kvs::{KvsServer, Result};
+use kvs::{Engine, KvStore, KvsServer, Result};
 use slog::Drain;
+use std::env;
 use structopt::StructOpt;
 
 #[derive(StructOpt)]
@@ -14,8 +15,10 @@ struct Opt {
     #[structopt(long, default_value = "127.0.0.1:4000")]
     addr: String,
     #[structopt(long)]
-    engine: Option<String>,
+    engine: Option<Engine>,
 }
+
+const DEFAULT_ENGINE: Engine = Engine::kvs;
 
 fn main() -> Result<()> {
     let opt = Opt::from_args();
@@ -26,9 +29,16 @@ fn main() -> Result<()> {
         drain,
         o!("version" => env!("CARGO_PKG_VERSION"), "engine" => "kvs", "addr" => opt.addr.clone()),
     );
-    let engine = String::from("kvs");
+    let engine = match opt.engine {
+        Some(engine) => engine,
+        None => DEFAULT_ENGINE,
+    };
+    let store = match engine {
+        Engine::kvs => KvStore::open(&env::current_dir()?.as_path())?,
+        Engine::sled => panic!("Haven't implemented it till now"),
+    };
     info!(log, "Starting server");
-    let mut server = KvsServer::new(opt.addr, engine, log.clone())?;
+    let mut server = KvsServer::new(opt.addr, store, log.clone(), engine)?;
     server.start()?;
     if opt.version {
         println!(env!("CARGO_PKG_VERSION"));
