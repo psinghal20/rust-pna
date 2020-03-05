@@ -1,6 +1,9 @@
+use failure::Fail;
 use serde_json;
+use sled;
 use std::io;
 use std::result;
+use std::str::Utf8Error;
 
 /// KVS Error type
 #[derive(Debug, Fail)]
@@ -9,8 +12,6 @@ pub enum KvsError {
     IOError(io::Error),
     #[fail(display = "KVS command serialization/Deserialization error")]
     SerDeError(serde_json::error::Error),
-    // #[fail(display = "KVS command deserialization error")]
-    // DeError(ron::de::Error),
     #[fail(display = "{} not found!", _0)]
     NotFoundError(String),
     #[fail(display = "Path Error")]
@@ -21,8 +22,12 @@ pub enum KvsError {
     CompactionError(),
     #[fail(display = "Unexpected Command type found")]
     UnexpectedCommandError,
+    #[fail(display = "Error in sled engine: {}", _0)]
+    SledEngineError(sled::Error),
+    #[fail(display = "Error parsing string for sled engine")]
+    StringParseError(Utf8Error),
     #[fail(display = "KVS misc error")]
-    Err,
+    Err(String),
 }
 
 impl From<io::Error> for KvsError {
@@ -34,6 +39,18 @@ impl From<io::Error> for KvsError {
 impl From<serde_json::error::Error> for KvsError {
     fn from(error: serde_json::error::Error) -> Self {
         KvsError::SerDeError(error)
+    }
+}
+
+impl From<sled::Error> for KvsError {
+    fn from(error: sled::Error) -> Self {
+        KvsError::SledEngineError(error)
+    }
+}
+
+impl From<Utf8Error> for KvsError {
+    fn from(error: Utf8Error) -> Self {
+        KvsError::StringParseError(error)
     }
 }
 

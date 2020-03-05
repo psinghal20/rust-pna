@@ -32,24 +32,26 @@ fn main() -> Result<()> {
     let mut client = KvsClient::connect(&opt.addr)?;
     if let Some(cmd) = opt.cmd {
         match cmd {
-            Cmd::Get { key } => {
-                if let Ok(result_value) = client.get(&key) {
+            Cmd::Get { key } => match client.get(&key) {
+                Ok(result_value) => {
                     if let Some(value) = result_value {
                         println!("{}", value);
                     } else {
                         println!("Key not found");
                     }
+                    Ok(())
                 }
-                Ok(())
-            }
+                Err(e) => Err(e),
+            },
             Cmd::Set { key, value } => client.set(&key, &value),
-            Cmd::Remove { key } => {
-                if let Err(KvsError::NotFoundError(_)) = client.remove(&key) {
-                    println!("Key not found");
-                    process::exit(1);
+            Cmd::Remove { key } => match client.remove(&key) {
+                Err(KvsError::NotFoundError(key)) => {
+                    eprintln!("Key not found: {}", key);
+                    Err(KvsError::NotFoundError(key))
                 }
-                Ok(())
-            }
+                Ok(_) => Ok(()),
+                Err(e) => Err(e),
+            },
         }
     } else {
         process::exit(1);

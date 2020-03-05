@@ -3,7 +3,9 @@ extern crate structopt;
 extern crate slog;
 extern crate slog_async;
 extern crate slog_term;
-use kvs::{Engine, KvStore, KvsServer, Result};
+#[macro_use]
+extern crate clap;
+use kvs::{SledStore, KvStore, KvsEngine, KvsServer, Result};
 use slog::Drain;
 use std::env;
 use structopt::StructOpt;
@@ -18,6 +20,15 @@ struct Opt {
     engine: Option<Engine>,
 }
 
+arg_enum! {
+    #[allow(non_camel_case_types)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum Engine {
+        kvs,
+        sled
+    }
+}
+
 const DEFAULT_ENGINE: Engine = Engine::kvs;
 
 fn main() -> Result<()> {
@@ -25,9 +36,9 @@ fn main() -> Result<()> {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::FullFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
-    let log = slog::Logger::root(
+    let mut log = slog::Logger::root(
         drain,
-        o!("version" => env!("CARGO_PKG_VERSION"), "engine" => "kvs", "addr" => opt.addr.clone()),
+        o!("version" => env!("CARGO_PKG_VERSION"), "addr" => opt.addr.clone()),
     );
     if opt.version {
         println!(env!("CARGO_PKG_VERSION"));
@@ -37,13 +48,22 @@ fn main() -> Result<()> {
         Some(engine) => engine,
         None => DEFAULT_ENGINE,
     };
-    let store = match engine {
-        Engine::kvs => KvStore::open(&env::current_dir()?.as_path())?,
-        Engine::sled => panic!("Haven't implemented it till now"),
-    };
-    info!(log, "Starting server");
-    let mut server = KvsServer::new(opt.addr, store, log.clone(), engine)?;
-    server.start()?;
-
+    match engine {
+        Engine::kvs => {
+            let store = KvStore::open(&env::current_dir()?.as_path())?;
+            log = log.new(o!("engine" => "kvs"));
+            start_server(store, opt.addr, log.clone())?;
+        }
+        Engine::sled => {
+            let store = SledStore::open(&env::current_dir()?.as_path())?;
+            log = log.new(o!("engine" => "sled"));
+            start_server(store, opt.addr, log.clone())?;
+        }
+    }
     Ok(())
+}
+
+fn start_server<T: KvsEngine>(store: T, addr: String, log: slog::Logger) -> Result<()> {
+    info!(log, "Starting server");
+    KvsServer::new(addr, store, log)?.start()
 }
