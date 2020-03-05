@@ -33,12 +33,16 @@ impl KvsClient {
     }
 
     pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
-        self.send_command(Command::Set(key.to_owned(), value.to_owned()))?;
-        Ok(())
+        match self.send_command(Command::Set(key.to_owned(), value.to_owned()))? {
+            Response::Ok(_) => Ok(()),
+            Response::Err(e) => Err(KvsError::Err(e)),
+        }
     }
 
     pub fn remove(&mut self, key: &str) -> Result<()> {
-        self.send_command(Command::Rm(key.to_owned()))?;
-        Ok(())
+        match self.send_command(Command::Rm(key.to_owned()))? {
+            Response::Ok(_) => Ok(()),
+            Response::Err(e) => Err(KvsError::Err(e)),
+        }
     }
 }

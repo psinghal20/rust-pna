@@ -12,7 +12,7 @@ pub enum KvsError {
     IOError(io::Error),
     #[fail(display = "KVS command serialization/Deserialization error")]
     SerDeError(serde_json::error::Error),
-    #[fail(display = "{} not found!", _0)]
+    #[fail(display = "Key not found: {}", _0)]
     NotFoundError(String),
     #[fail(display = "Path Error")]
     PathError,

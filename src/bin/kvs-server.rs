@@ -5,7 +5,7 @@ extern crate slog_async;
 extern crate slog_term;
 #[macro_use]
 extern crate clap;
-use kvs::{SledStore, KvStore, KvsEngine, KvsServer, Result};
+use kvs::{KvStore, KvsEngine, KvsServer, Result, SledStore};
 use slog::Drain;
 use std::env;
 use structopt::StructOpt;

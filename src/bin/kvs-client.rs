@@ -1,5 +1,5 @@
 extern crate structopt;
-use kvs::{KvsClient, KvsError, Result};
+use kvs::{KvsClient, Result};
 use std::{env, process};
 use structopt::StructOpt;
 
@@ -45,10 +45,6 @@ fn main() -> Result<()> {
             },
             Cmd::Set { key, value } => client.set(&key, &value),
             Cmd::Remove { key } => match client.remove(&key) {
-                Err(KvsError::NotFoundError(key)) => {
-                    eprintln!("Key not found: {}", key);
-                    Err(KvsError::NotFoundError(key))
-                }
                 Ok(_) => Ok(()),
                 Err(e) => Err(e),
             },

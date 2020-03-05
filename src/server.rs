@@ -22,7 +22,9 @@ impl<T: KvsEngine> KvsServer<T> {
         for stream in listener.incoming() {
             let stream = stream?;
             info!(self.log, "New connection"; "client addr" => stream.peer_addr()?);
-            self.handle_connection(stream)?;
+            if let Err(e) = self.handle_connection(stream) {
+                error!(self.log, "Error while handling connection: {}", e);
+            };
         }
         Ok(())
     }
