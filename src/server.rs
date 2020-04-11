@@ -32,18 +32,33 @@ impl<T: KvsEngine> KvsServer<T> {
     fn handle_connection(&mut self, mut stream: TcpStream) -> Result<()> {
         let cmd: Command = serde_json::from_reader(&stream)?;
         let res = match cmd {
-            Command::Get(key) => match self.store.get(key) {
-                Ok(value) => Response::Ok(value),
-                Err(e) => Response::Err(e.to_string()),
-            },
-            Command::Set(key, value) => match self.store.set(key, value) {
-                Ok(_) => Response::Ok(None),
-                Err(e) => Response::Err(e.to_string()),
-            },
-            Command::Rm(key) => match self.store.remove(key) {
-                Ok(_) => Response::Ok(None),
-                Err(e) => Response::Err(e.to_string()),
-            },
+            Command::Get(key) => {
+                debug!(self.log, "Received get command, key: {}", key);
+                match self.store.get(key) {
+                    Ok(value) => Response::Ok(value),
+                    Err(e) => Response::Err(e.to_string()),
+                }
+            }
+            Command::Set(key, value) => {
+                debug!(
+                    self.log,
+                    "Received Set command with key: {}, value: {}", key, value
+                );
+                match self.store.set(key, value) {
+                    Ok(_) => Response::Ok(None),
+                    Err(e) => Response::Err(e.to_string()),
+                }
+            }
+            Command::Rm(key) => {
+                debug!(self.log, "Received Rm command key: {}", key);
+                match self.store.remove(key) {
+                    Ok(_) => Response::Ok(None),
+                    Err(e) => {
+                        error!(self.log, "{}", e);
+                        Response::Err(e.to_string())
+                    }
+                }
+            }
         };
         serde_json::to_writer(&mut stream, &res)?;
         stream.flush()?;

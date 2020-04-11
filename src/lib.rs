@@ -13,6 +13,6 @@ mod server;
 #[macro_use]
 extern crate slog;
 pub use client::KvsClient;
-pub use engines::{SledStore, KvStore, KvsEngine};
+pub use engines::{KvStore, KvsEngine, SledStore};
 pub use errors::{KvsError, Result};
 pub use server::KvsServer;

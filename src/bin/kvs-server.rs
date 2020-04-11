@@ -5,9 +5,13 @@ extern crate slog_async;
 extern crate slog_term;
 #[macro_use]
 extern crate clap;
-use kvs::{KvStore, KvsEngine, KvsServer, Result, SledStore};
+use kvs::{KvStore, KvsEngine, KvsError, KvsServer, Result, SledStore};
 use slog::Drain;
 use std::env;
+use std::fs::File;
+use std::io;
+use std::io::prelude::*;
+use std::io::BufReader;
 use structopt::StructOpt;
 
 #[derive(StructOpt)]
@@ -29,6 +33,23 @@ arg_enum! {
     }
 }
 
+impl Engine {
+    fn from_string(s: &str) -> Self {
+        if s == "sled" {
+            Self::sled
+        } else {
+            Self::kvs
+        }
+    }
+
+    fn to_string(&mut self) -> String {
+        match self {
+            Self::kvs => String::from("kvs"),
+            Self::sled => String::from("sled"),
+        }
+    }
+}
+
 const DEFAULT_ENGINE: Engine = Engine::kvs;
 
 fn main() -> Result<()> {
@@ -44,9 +65,26 @@ fn main() -> Result<()> {
         println!(env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
-    let engine = match opt.engine {
-        Some(engine) => engine,
-        None => DEFAULT_ENGINE,
+    let current_engine = get_current_engine()?;
+    let engine = match current_engine {
+        Some(engine) => match opt.engine {
+            Some(opt_engine) => {
+                if opt_engine.to_string() != engine {
+                    error!(log, "Wrong engine provided, current engine: {}", engine);
+                    return Err(KvsError::Err("Wrong engine provided".into()));
+                }
+                opt_engine
+            }
+            None => Engine::from_string(&engine[..]),
+        },
+        None => {
+            let temp_engine = match opt.engine {
+                Some(opt_engine) => opt_engine,
+                None => DEFAULT_ENGINE,
+            };
+            write_current_engine(temp_engine.to_string())?;
+            temp_engine
+        }
     };
     match engine {
         Engine::kvs => {
@@ -66,4 +104,26 @@ fn main() -> Result<()> {
 fn start_server<T: KvsEngine>(store: T, addr: String, log: slog::Logger) -> Result<()> {
     info!(log, "Starting server");
     KvsServer::new(addr, store, log)?.start()
+}
+
+fn get_current_engine() -> Result<Option<String>> {
+    let current_engine_file = match File::open("engine.conf") {
+        Ok(file) => file,
+        Err(e) => match e.kind() {
+            io::ErrorKind::NotFound => return Ok(None),
+            _ => return Err(e.into()),
+        },
+    };
+    let mut engine_reader = BufReader::new(current_engine_file);
+    let mut engine = String::new();
+    engine_reader.read_to_string(&mut engine)?;
+    Ok(Some(engine))
+}
+
+fn write_current_engine(engine: String) -> Result<()> {
+    let mut f = File::create("engine.conf")?;
+    match f.write(engine.as_bytes()) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(KvsError::Err(e.to_string())),
+    }
 }

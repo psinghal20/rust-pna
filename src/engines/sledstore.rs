@@ -7,7 +7,7 @@ use super::KvsEngine;
 use crate::{KvsError, Result};
 #[derive(Debug)]
 pub struct SledStore {
-    store: Db,
+    pub store: Db,
 }
 
 impl SledStore {
@@ -21,7 +21,10 @@ impl SledStore {
 impl KvsEngine for SledStore {
     fn set(&mut self, key: String, value: String) -> Result<()> {
         match self.store.insert(key, &value[..]) {
-            Ok(_) => Ok(()),
+            Ok(_) => match self.store.flush() {
+                Ok(_) => Ok(()),
+                Err(e) => Err(KvsError::SledEngineError(e)),
+            },
             Err(e) => Err(KvsError::SledEngineError(e)),
         }
     }
@@ -37,8 +40,14 @@ impl KvsEngine for SledStore {
     }
 
     fn remove(&mut self, key: String) -> Result<()> {
-        match self.store.remove(key) {
-            Ok(_) => Ok(()),
+        match self.store.remove(&key) {
+            Ok(opt) => match opt {
+                None => Err(KvsError::NotFoundError(key)),
+                Some(_) => match self.store.flush() {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(KvsError::SledEngineError(e)),
+                },
+            },
             Err(e) => Err(KvsError::SledEngineError(e)),
         }
     }
