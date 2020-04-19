@@ -5,7 +5,7 @@ use std::str;
 
 use super::KvsEngine;
 use crate::{KvsError, Result};
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SledStore {
     pub store: Db,
 }
@@ -19,7 +19,7 @@ impl SledStore {
 }
 
 impl KvsEngine for SledStore {
-    fn set(&mut self, key: String, value: String) -> Result<()> {
+    fn set(&self, key: String, value: String) -> Result<()> {
         match self.store.insert(key, &value[..]) {
             Ok(_) => match self.store.flush() {
                 Ok(_) => Ok(()),
@@ -29,7 +29,7 @@ impl KvsEngine for SledStore {
         }
     }
 
-    fn get(&mut self, key: String) -> Result<Option<String>> {
+    fn get(&self, key: String) -> Result<Option<String>> {
         match self.store.get(key) {
             Ok(o) => match o {
                 Some(value) => return Ok(Some(str::from_utf8(value.borrow())?.to_string())),
@@ -39,7 +39,7 @@ impl KvsEngine for SledStore {
         }
     }
 
-    fn remove(&mut self, key: String) -> Result<()> {
+    fn remove(&self, key: String) -> Result<()> {
         match self.store.remove(&key) {
             Ok(opt) => match opt {
                 None => Err(KvsError::NotFoundError(key)),

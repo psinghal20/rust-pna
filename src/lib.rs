@@ -9,6 +9,7 @@ mod common;
 mod engines;
 mod errors;
 mod server;
+pub mod thread_pool;
 
 #[macro_use]
 extern crate slog;
