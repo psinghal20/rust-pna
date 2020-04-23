@@ -6,8 +6,7 @@ extern crate slog_term;
 #[macro_use]
 extern crate clap;
 use kvs::{
-    thread_pool::NaiveThreadPool, thread_pool::ThreadPool, KvStore, KvsEngine, KvsError, KvsServer,
-    Result, SledStore,
+    KvStore, KvsEngine, KvsError, KvsServer, NaiveThreadPool, Result, SledStore, ThreadPool,
 };
 use slog::Drain;
 use std::env;

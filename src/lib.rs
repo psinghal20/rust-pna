@@ -17,3 +17,4 @@ pub use client::KvsClient;
 pub use engines::{KvStore, KvsEngine, SledStore};
 pub use errors::{KvsError, Result};
 pub use server::KvsServer;
+pub use thread_pool::{NaiveThreadPool, RayonThreadPool, SharedQueueThreadPool, ThreadPool};
