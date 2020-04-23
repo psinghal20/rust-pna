@@ -5,7 +5,10 @@ extern crate slog_async;
 extern crate slog_term;
 #[macro_use]
 extern crate clap;
-use kvs::{KvStore, KvsEngine, KvsError, KvsServer, Result, SledStore};
+use kvs::{
+    thread_pool::NaiveThreadPool, thread_pool::ThreadPool, KvStore, KvsEngine, KvsError, KvsServer,
+    Result, SledStore,
+};
 use slog::Drain;
 use std::env;
 use std::fs::File;
@@ -103,7 +106,8 @@ fn main() -> Result<()> {
 
 fn start_server<T: KvsEngine>(store: T, addr: String, log: slog::Logger) -> Result<()> {
     info!(log, "Starting server");
-    KvsServer::new(addr, store, log)?.start()
+    let pool = NaiveThreadPool::new(4)?;
+    KvsServer::new(addr, store, log, pool)?.start()
 }
 
 fn get_current_engine() -> Result<Option<String>> {

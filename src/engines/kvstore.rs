@@ -26,6 +26,7 @@ struct KvReader {
 
 impl KvReader {
     fn read(&self, cmd_pos: &CommandPos) -> Result<Command> {
+        self.remove_stale_files()?;
         let mut readers = self.readers.borrow_mut();
         if !readers.contains_key(&cmd_pos.file_no) {
             readers.insert(
@@ -45,6 +46,7 @@ impl KvReader {
         cmd_pos: &mut CommandPos,
         mut writer: &mut io::BufWriter<fs::File>,
     ) -> Result<u64> {
+        self.remove_stale_files()?;
         let mut readers = self.readers.borrow_mut();
         if !readers.contains_key(&cmd_pos.file_no) {
             readers.insert(
@@ -105,7 +107,7 @@ pub struct KvWriter {
 impl KvWriter {
     fn write(&mut self, cmd: &Command) -> Result<()> {
         let pos = self.writer.seek(io::SeekFrom::Current(0))?;
-        serde_json::to_writer(&mut self.writer, cmd);
+        serde_json::to_writer(&mut self.writer, cmd)?;
         self.writer.flush()?;
         let new_pos = self.writer.seek(io::SeekFrom::Current(0))?;
         let cmd_pos = (self.current_file_no, pos, new_pos).into();

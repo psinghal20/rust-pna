@@ -19,9 +19,7 @@ pub trait ThreadPool {
         Self: std::marker::Sized;
     fn spawn<F>(&self, job: F)
     where
-        F: FnOnce() + Send + 'static,
-    {
-    }
+        F: FnOnce() + Send + 'static;
 }
 
 impl ThreadPool for NaiveThreadPool {
@@ -33,7 +31,7 @@ impl ThreadPool for NaiveThreadPool {
     where
         F: FnOnce() + Send + 'static,
     {
-        let handle = thread::spawn(job);
+        thread::spawn(job);
     }
 }
 
@@ -41,10 +39,20 @@ impl ThreadPool for SharedQueueThreadPool {
     fn new(size: usize) -> Result<SharedQueueThreadPool> {
         Ok(SharedQueueThreadPool)
     }
+    fn spawn<F>(&self, job: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+    }
 }
 
 impl ThreadPool for RayonThreadPool {
     fn new(size: usize) -> Result<RayonThreadPool> {
         Ok(RayonThreadPool)
+    }
+    fn spawn<F>(&self, job: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
     }
 }
